@@ -56,8 +56,8 @@ body {
   cursor: pointer;
 }
 
-#lbl-stage { font-weight: 800; color: var(--yellow); font-size: 0.85rem; }
-#lbl-operator { color: var(--muted); font-size: 0.8rem; }
+.operator-badge small { color: var(--muted); font-size: 0.72rem; font-weight: 700; }
+#lbl-operator { font-weight: 800; color: var(--yellow); font-size: 0.9rem; }
 
 .sync-pill {
   display: flex;
@@ -127,6 +127,27 @@ input, select {
 }
 
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.tech-config {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(13, 15, 18, 0.5);
+}
+
+.tech-config summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.tech-fields {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
 .camera-wrapper {
   flex: 1;

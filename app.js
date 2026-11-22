@@ -15,12 +15,11 @@ const App = {
   toastTimer: null,
 
   async init() {
-    this.populateStageSelect();
     this.bindEvents();
     await CubagemDB.init();
 
     const cfg = this.getConfig();
-    if (!cfg.apiUrl || !cfg.token || !cfg.operator || !cfg.stage) {
+    if (!cfg.operator || !cfg.apiUrl) {
       this.showConfigScreen();
     } else {
       this.applyHeaderConfig(cfg);
@@ -29,11 +28,20 @@ const App = {
   },
 
   getConfig() {
+    let saved = {};
     try {
-      return JSON.parse(localStorage.getItem('cubagem_config') || '{}');
+      saved = JSON.parse(localStorage.getItem('cubagem_config') || '{}');
     } catch (_) {
-      return {};
+      saved = {};
     }
+
+    const defaults = typeof APP_CONFIG !== 'undefined' ? APP_CONFIG : {};
+    return {
+      apiUrl: (defaults.apiUrl || saved.apiUrl || '').trim(),
+      token: (defaults.token || saved.token || '').trim(),
+      operator: (saved.operator || '').trim(),
+      regex: (saved.regex || defaults.ucRegex || DEFAULT_UC_REGEX).trim()
+    };
   },
 
   buildUcRegex(rawPattern) {
@@ -47,32 +55,30 @@ const App = {
     }
   },
 
-  populateStageSelect() {
-    const select = document.getElementById('cfg-stage');
-    if (select.options.length > 0) return;
-    for (let i = 1; i <= 40; i++) {
-      const code = `STAGE_${String(i).padStart(2, '0')}`;
-      const opt = document.createElement('option');
-      opt.value = code;
-      opt.textContent = code;
-      select.appendChild(opt);
-    }
-  },
-
   showConfigScreen() {
     const cfg = this.getConfig();
-    if (cfg.apiUrl) document.getElementById('cfg-url').value = cfg.apiUrl;
-    if (cfg.token) document.getElementById('cfg-token').value = cfg.token;
-    if (cfg.operator) document.getElementById('cfg-operator').value = cfg.operator;
-    if (cfg.stage) document.getElementById('cfg-stage').value = cfg.stage;
+    const defaults = typeof APP_CONFIG !== 'undefined' ? APP_CONFIG : {};
+    const hasHardcodedUrl = Boolean((defaults.apiUrl || '').trim());
+
+    document.getElementById('cfg-operator').value = cfg.operator || '';
+    document.getElementById('cfg-url').value = cfg.apiUrl || '';
     document.getElementById('cfg-regex').value = cfg.regex || DEFAULT_UC_REGEX;
+
+    const techBox = document.getElementById('tech-config-box');
+    if (hasHardcodedUrl) {
+      techBox.classList.add('hidden');
+      techBox.open = false;
+    } else {
+      techBox.classList.remove('hidden');
+      techBox.open = !cfg.apiUrl;
+    }
 
     document.getElementById('screen-config').classList.remove('hidden');
     document.getElementById('screen-main').classList.add('hidden');
+    document.getElementById('cfg-operator').focus();
   },
 
   applyHeaderConfig(cfg) {
-    document.getElementById('lbl-stage').textContent = cfg.stage;
     document.getElementById('lbl-operator').textContent = cfg.operator;
   },
 
@@ -85,7 +91,7 @@ const App = {
       this.updateLevelUI(sensorData);
     });
     SyncWorker.start((msg) => {
-      this.showToast(`Erro de autenticação: ${msg} Verifique o Token.`, true);
+      this.showToast(`Erro de autenticação: ${msg}`, true);
     });
     this.setState('SCAN_UC');
   },
@@ -242,7 +248,7 @@ const App = {
     }
   },
 
-  updateLevelUI({ tilt, pitch, roll, isLevel, status }) {
+  updateLevelUI({ pitch, roll, isLevel, status }) {
     if (this.state !== 'CAPTURE_PALLET') return;
 
     const frame = document.getElementById('camera-frame');
@@ -325,13 +331,14 @@ const App = {
       const cfg = this.getConfig();
       const nowIso = new Date().toISOString();
       const capturedUC = this.activeUC;
-      const idCapturaLocal = `${capturedUC}_${Date.now()}_${cfg.stage.replace('_', '')}`;
+      const opTag = cfg.operator.replace(/[^A-Z0-9]/gi, '') || 'OP';
+      const idCapturaLocal = `${capturedUC}_${Date.now()}_${opTag}`;
 
       const record = {
         id_captura_local: idCapturaLocal,
         uc: capturedUC,
         operador: cfg.operator,
-        stage: cfg.stage,
+        stage: '',
         tipo_base: this.selectedBase,
         angulo_inclinacao: LevelSensor.currentTilt,
         timestamp_captura: nowIso,
@@ -382,41 +389,62 @@ const App = {
     }
   },
 
+  async saveConfigAndStart() {
+    const defaults = typeof APP_CONFIG !== 'undefined' ? APP_CONFIG : {};
+    const operator = document.getElementById('cfg-operator').value.trim().toUpperCase();
+    const apiUrl = (defaults.apiUrl || document.getElementById('cfg-url').value || '').trim();
+    const regex = (document.getElementById('cfg-regex').value || defaults.ucRegex || DEFAULT_UC_REGEX).trim();
+
+    if (!operator) {
+      alert('Informe sua matrícula para continuar.');
+      document.getElementById('cfg-operator').focus();
+      return;
+    }
+
+    if (!apiUrl) {
+      const techBox = document.getElementById('tech-config-box');
+      techBox.classList.remove('hidden');
+      techBox.open = true;
+      alert('Informe a URL do Apps Script (ou configure-a em config.js).');
+      return;
+    }
+
+    try {
+      new RegExp(regex);
+    } catch (_) {
+      alert('A expressão regular (Regex) informada é inválida.');
+      return;
+    }
+
+    // Solicita permissão de sensores no iOS ANTES de qualquer await de câmera (gesto ativo)
+    if (LevelSensor.needsPermission()) {
+      await LevelSensor.requestPermissions();
+    }
+
+    const cfg = {
+      operator,
+      apiUrl,
+      token: (defaults.token || '').trim(),
+      regex
+    };
+
+    localStorage.setItem('cubagem_config', JSON.stringify(cfg));
+    SyncWorker.resetAuthError();
+    this.applyHeaderConfig(cfg);
+    await this.startOperations();
+  },
+
   bindEvents() {
     document.getElementById('btn-open-config').addEventListener('click', () => {
       this.showConfigScreen();
     });
 
-    document.getElementById('btn-save-config').addEventListener('click', async () => {
-      const cfg = {
-        apiUrl: document.getElementById('cfg-url').value.trim(),
-        token: document.getElementById('cfg-token').value.trim(),
-        operator: document.getElementById('cfg-operator').value.trim().toUpperCase(),
-        stage: document.getElementById('cfg-stage').value,
-        regex: document.getElementById('cfg-regex').value.trim() || DEFAULT_UC_REGEX
-      };
+    document.getElementById('btn-save-config').addEventListener('click', () => {
+      this.saveConfigAndStart();
+    });
 
-      if (!cfg.apiUrl || !cfg.token || !cfg.operator) {
-        alert('Preencha URL, Token e Matrícula.');
-        return;
-      }
-
-      try {
-        new RegExp(cfg.regex);
-      } catch (_) {
-        alert('A expressão regular (Regex) informada é inválida.');
-        return;
-      }
-
-      // Solicita permissão de sensores no iOS ANTES de qualquer await de câmera (gesto ativo)
-      if (LevelSensor.needsPermission()) {
-        await LevelSensor.requestPermissions();
-      }
-
-      localStorage.setItem('cubagem_config', JSON.stringify(cfg));
-      SyncWorker.resetAuthError();
-      this.applyHeaderConfig(cfg);
-      await this.startOperations();
+    document.getElementById('cfg-operator').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.saveConfigAndStart();
     });
 
     document.getElementById('btn-enable-sensors').addEventListener('click', async () => {

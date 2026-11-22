@@ -12,9 +12,9 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="operator-badge" id="btn-open-config" title="Alterar Operador/Stage">
-      <span id="lbl-stage">STAGE --</span>
-      <small id="lbl-operator">OP ----</small>
+    <div class="operator-badge" id="btn-open-config" title="Trocar Colaborador">
+      <small>MATRÍCULA</small>
+      <span id="lbl-operator">----</span>
     </div>
     <div class="sync-pill offline" id="sync-status">
       <span class="dot"></span>
@@ -24,30 +24,30 @@
 
   <section id="screen-config" class="screen hidden">
     <div class="card">
-      <h2>Configuração do Terminal</h2>
-      <p class="subtitle">Identificação obrigatória para auditoria de stage.</p>
-      
-      <label>Endpoint Web App (Apps Script URL)</label>
-      <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/.../exec" required />
+      <h2>Identificação do Colaborador</h2>
+      <p class="subtitle">Informe sua matrícula para iniciar a cubagem.</p>
 
-      <label>Token de Acesso Operacional</label>
-      <input type="password" id="cfg-token" placeholder="SEC_TOKEN_..." required />
+      <label for="cfg-operator">Matrícula</label>
+      <input
+        type="text"
+        id="cfg-operator"
+        placeholder="Ex: 4409"
+        autocomplete="off"
+        required
+      />
 
-      <div class="row-2">
-        <div>
-          <label>Matrícula Operador</label>
-          <input type="text" id="cfg-operator" placeholder="Ex: OP_4409" required />
+      <details id="tech-config-box" class="tech-config hidden">
+        <summary>Configuração técnica (somente se não definida no config.js)</summary>
+        <div class="tech-fields">
+          <label for="cfg-url">Endpoint Web App (Apps Script URL)</label>
+          <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/.../exec" />
+
+          <label for="cfg-regex">Regex Validação Etiqueta UC</label>
+          <input type="text" id="cfg-regex" value="^UC\d{9}$" />
         </div>
-        <div>
-          <label>Stage Atual (01 a 40)</label>
-          <select id="cfg-stage"></select>
-        </div>
-      </div>
+      </details>
 
-      <label>Regex Validação Etiqueta UC</label>
-      <input type="text" id="cfg-regex" value="^UC\d{9}$" />
-
-      <button id="btn-save-config" class="btn-primary">SALVAR E INICIAR OPERAÇÃO</button>
+      <button id="btn-save-config" class="btn-primary">INICIAR OPERAÇÃO</button>
     </div>
   </section>
 
@@ -125,6 +125,7 @@
 
   <div id="toast" class="toast hidden"></div>
 
+  <script src="config.js"></script>
   <script src="db.js"></script>
   <script src="sensors.js"></script>
   <script src="sync.js"></script>

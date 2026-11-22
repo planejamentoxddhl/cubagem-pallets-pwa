@@ -61,12 +61,26 @@ const SyncWorker = {
     }
   },
 
+  _getSyncConfig() {
+    let saved = {};
+    try {
+      saved = JSON.parse(localStorage.getItem('cubagem_config') || '{}');
+    } catch (_) {
+      saved = {};
+    }
+    const defaults = typeof APP_CONFIG !== 'undefined' ? APP_CONFIG : {};
+    return {
+      apiUrl: (defaults.apiUrl || saved.apiUrl || '').trim(),
+      token: (defaults.token || saved.token || '').trim()
+    };
+  },
+
   async processQueue() {
     await this.updateBadge();
     if (!navigator.onLine || this.isSyncing || this.authError) return;
 
-    const config = JSON.parse(localStorage.getItem('cubagem_config') || '{}');
-    if (!config.apiUrl || !config.token) return;
+    const config = this._getSyncConfig();
+    if (!config.apiUrl) return;
 
     const allItems = await CubagemDB.getAllPending();
     const items = allItems.filter((item) => !item.quarantined);

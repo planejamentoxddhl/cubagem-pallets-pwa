@@ -364,6 +364,29 @@ video {
   box-shadow: 0 0 12px rgba(255, 204, 0, 0.55);
 }
 
+.btn-floating-zoom {
+  position: absolute;
+  right: 12px;
+  top: calc(50% + 56px);
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(24, 28, 34, 0.85);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 800;
+  z-index: 15;
+  cursor: pointer;
+}
+
+.btn-floating-zoom.active {
+  background: var(--yellow);
+  color: #0d0f12;
+  border-color: var(--yellow);
+}
+
 .control-dock {
   background: var(--surface);
   border-top: 1px solid var(--border);

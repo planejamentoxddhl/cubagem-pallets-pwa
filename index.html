@@ -8,7 +8,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="styles.css" />
-  <script src="vendor/html5-qrcode.min.js" defer></script>
+  <script src="vendor/zxing-reader.iife.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -41,9 +41,6 @@
         <div class="tech-fields">
           <label for="cfg-url">Endpoint Web App (Apps Script URL)</label>
           <input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/.../exec" />
-
-          <label for="cfg-regex">Regex Validação Etiqueta UC</label>
-          <input type="text" id="cfg-regex" value="^UC\d{9}$" />
         </div>
       </details>
 
@@ -56,15 +53,16 @@
       <video id="camera-video" autoplay playsinline muted></video>
       <canvas id="capture-canvas" class="hidden"></canvas>
       <canvas id="scan-canvas" class="hidden"></canvas>
-      <div id="qr-fallback-reader" class="hidden"></div>
 
       <div id="overlay-scanner" class="overlay">
         <div class="scan-reticle">
           <div class="scan-line"></div>
         </div>
-        <div class="scan-hint">Aponte para a etiqueta <strong>UC</strong> do pallet</div>
+        <div class="scan-hint" id="scan-hint">
+          Aponte para o código de barras ou QR <strong>(distância ~20 cm)</strong>
+        </div>
         <div class="manual-uc-box">
-          <input type="text" id="input-uc-manual" placeholder="Ou digite UC987654321" maxlength="15" />
+          <input type="text" id="input-uc-manual" placeholder="Ou digite o código / UC" autocomplete="off" />
           <button id="btn-confirm-uc-manual" class="btn-secondary">OK</button>
         </div>
       </div>
@@ -105,6 +103,7 @@
       </div>
 
       <button id="btn-torch" class="btn-floating-torch" title="Lanterna">🔦</button>
+      <button id="btn-zoom" class="btn-floating-zoom hidden" title="Alternar Zoom">1x</button>
     </div>
 
     <footer class="control-dock">
@@ -118,7 +117,7 @@
       </div>
 
       <button id="btn-shutter" class="btn-shutter" disabled>
-        AGUARDANDO LEITURA DA UC
+        AGUARDANDO LEITURA DO CÓDIGO
       </button>
     </footer>
   </main>

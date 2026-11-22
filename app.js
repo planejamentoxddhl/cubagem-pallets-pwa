@@ -1,15 +1,16 @@
-const DEFAULT_UC_REGEX = '^UC\\d{9}$';
-
 const App = {
   state: 'SCAN_UC',
   activeUC: null,
   selectedBase: 'PBR_100x120',
   videoStream: null,
   torchOn: false,
+  zoomHigh: false,
+  zoomCaps: null,
+  zxingReady: false,
   barcodeDetector: null,
-  html5Fallback: null,
   scanLoopActive: false,
   scanBusy: false,
+  scanFrameCounter: 0,
   lastScanTs: 0,
   isCapturing: false,
   toastTimer: null,
@@ -39,20 +40,8 @@ const App = {
     return {
       apiUrl: (defaults.apiUrl || saved.apiUrl || '').trim(),
       token: (defaults.token || saved.token || '').trim(),
-      operator: (saved.operator || '').trim(),
-      regex: (saved.regex || defaults.ucRegex || DEFAULT_UC_REGEX).trim()
+      operator: (saved.operator || '').trim()
     };
-  },
-
-  buildUcRegex(rawPattern) {
-    const source = (rawPattern || '').trim() || DEFAULT_UC_REGEX;
-    try {
-      return new RegExp(source);
-    } catch (err) {
-      console.warn('Regex inválida na configuração, usando padrão:', err);
-      this.showToast('Regex inválida — usando padrão ^UC\\d{9}$', true);
-      return new RegExp(DEFAULT_UC_REGEX);
-    }
   },
 
   showConfigScreen() {
@@ -62,7 +51,6 @@ const App = {
 
     document.getElementById('cfg-operator').value = cfg.operator || '';
     document.getElementById('cfg-url').value = cfg.apiUrl || '';
-    document.getElementById('cfg-regex').value = cfg.regex || DEFAULT_UC_REGEX;
 
     const techBox = document.getElementById('tech-config-box');
     if (hasHardcodedUrl) {
@@ -102,8 +90,8 @@ const App = {
       this.videoStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
         },
         audio: false
       });
@@ -112,43 +100,77 @@ const App = {
       video.srcObject = this.videoStream;
       await video.play();
 
-      this.initBarcodeReaders();
+      await this.configureCameraTrack();
+      await this.initBarcodeReaders();
       this.startBarcodeLoop();
     } catch (err) {
       alert('Erro ao acessar câmera. Verifique permissões HTTPS: ' + err.message);
     }
   },
 
-  initBarcodeReaders() {
+  async configureCameraTrack() {
+    const track = this.videoStream && this.videoStream.getVideoTracks()[0];
+    if (!track || !track.getCapabilities) return;
+
+    try {
+      const caps = track.getCapabilities();
+      const advanced = [];
+
+      if (caps.focusMode && caps.focusMode.includes('continuous')) {
+        advanced.push({ focusMode: 'continuous' });
+      }
+
+      if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+        this.zoomCaps = caps.zoom;
+        document.getElementById('btn-zoom').classList.remove('hidden');
+      }
+
+      if (advanced.length > 0) {
+        await track.applyConstraints({ advanced });
+      }
+    } catch (err) {
+      console.warn('Ajuste opcional de foco/zoom não suportado:', err);
+    }
+  },
+
+  async initBarcodeReaders() {
+    const hint = document.getElementById('scan-hint');
+
+    // 1. Motor principal universal (iOS Safari, Android e Desktop): ZXing-C++ WebAssembly
+    if (typeof ZXingWASM !== 'undefined') {
+      try {
+        await ZXingWASM.prepareZXingModule({
+          overrides: {
+            locateFile: (path) =>
+              path.endsWith('.wasm') ? './vendor/zxing_reader.wasm' : path
+          },
+          fireImmediately: true
+        });
+        this.zxingReady = true;
+      } catch (err) {
+        console.warn('Falha ao inicializar ZXingWASM:', err);
+        this.zxingReady = false;
+      }
+    }
+
+    // 2. Motor auxiliar nativo (Android Chrome) caso disponível
     if ('BarcodeDetector' in window) {
       try {
-        this.barcodeDetector = new BarcodeDetector({
-          formats: ['code_128', 'code_39', 'qr_code', 'ean_13', 'itf']
-        });
+        const supported = typeof BarcodeDetector.getSupportedFormats === 'function'
+          ? await BarcodeDetector.getSupportedFormats()
+          : ['code_128', 'code_39', 'qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'data_matrix'];
+        this.barcodeDetector = new BarcodeDetector({ formats: supported });
       } catch (err) {
-        console.warn('BarcodeDetector indisponível para estes formatos:', err);
+        console.warn('BarcodeDetector nativo indisponível:', err);
         this.barcodeDetector = null;
       }
     }
 
-    if (!this.barcodeDetector && typeof Html5Qrcode !== 'undefined') {
-      try {
-        const formats = typeof Html5QrcodeSupportedFormats !== 'undefined'
-          ? [
-              Html5QrcodeSupportedFormats.CODE_128,
-              Html5QrcodeSupportedFormats.CODE_39,
-              Html5QrcodeSupportedFormats.QR_CODE,
-              Html5QrcodeSupportedFormats.EAN_13,
-              Html5QrcodeSupportedFormats.ITF
-            ]
-          : undefined;
-        this.html5Fallback = new Html5Qrcode('qr-fallback-reader', {
-          formatsToSupport: formats,
-          verbose: false
-        });
-      } catch (err) {
-        console.warn('Falha ao inicializar fallback html5-qrcode:', err);
-        this.html5Fallback = null;
+    if (hint) {
+      if (this.zxingReady || this.barcodeDetector) {
+        hint.innerHTML = 'Scanner ativo • Aponte para o código <strong>(~20 cm de distância)</strong>';
+      } else {
+        hint.innerHTML = 'Scanner indisponível neste navegador — <strong>digite o código abaixo</strong>';
       }
     }
   },
@@ -158,40 +180,74 @@ const App = {
     this.scanLoopActive = true;
     const video = document.getElementById('camera-video');
     const scanCanvas = document.getElementById('scan-canvas');
-    const scanCtx = scanCanvas.getContext('2d');
+    const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
 
     const tick = async (ts) => {
-      const interval = this.barcodeDetector ? 120 : 350;
       if (
         this.state === 'SCAN_UC' &&
         !this.scanBusy &&
-        ts - this.lastScanTs >= interval &&
+        ts - this.lastScanTs >= 140 &&
         video.readyState === video.HAVE_ENOUGH_DATA &&
-        video.videoWidth > 0
+        video.videoWidth > 0 &&
+        video.videoHeight > 0
       ) {
         this.scanBusy = true;
         this.lastScanTs = ts;
-        try {
-          if (this.barcodeDetector) {
-            const barcodes = await this.barcodeDetector.detect(video);
-            for (const bc of barcodes) {
-              if (this.validateAndAcceptUC(bc.rawValue)) break;
-            }
-          } else if (this.html5Fallback) {
-            const targetW = Math.min(640, video.videoWidth);
-            const scale = targetW / video.videoWidth;
-            scanCanvas.width = Math.round(video.videoWidth * scale);
-            scanCanvas.height = Math.round(video.videoHeight * scale);
-            scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+        this.scanFrameCounter++;
 
-            const blob = await new Promise((resolve) =>
-              scanCanvas.toBlob(resolve, 'image/jpeg', 0.7)
-            );
-            if (blob) {
-              const file = new File([blob], 'frame.jpg', { type: 'image/jpeg' });
-              const decodedText = await this.html5Fallback.scanFile(file, false);
-              if (decodedText) this.validateAndAcceptUC(decodedText);
+        try {
+          let detected = null;
+
+          // Tenta BarcodeDetector nativo primeiro se existir (muito rápido no Android)
+          if (this.barcodeDetector) {
+            try {
+              const barcodes = await this.barcodeDetector.detect(video);
+              if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                detected = barcodes[0].rawValue;
+              }
+            } catch (_) {}
+          }
+
+          // ZXing-C++ WASM (funciona no iPhone 14 Pro / iOS Safari + 1D/2D de alta precisão)
+          if (!detected && this.zxingReady) {
+            const vw = video.videoWidth;
+            const vh = video.videoHeight;
+
+            // Alterna entre recorte central em resolução nativa (ideal p/ 1D fino: EAN-13/Code128)
+            // e quadro inteiro a cada 3 frames (pega códigos fora do retângulo central)
+            const scanFullFrame = this.scanFrameCounter % 3 === 0;
+            if (scanFullFrame) {
+              const maxSide = 1080;
+              const scale = Math.min(1, maxSide / Math.max(vw, vh));
+              scanCanvas.width = Math.round(vw * scale);
+              scanCanvas.height = Math.round(vh * scale);
+              scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+            } else {
+              const cropW = Math.round(vw * 0.88);
+              const cropH = Math.round(vh * 0.45);
+              const sx = Math.round((vw - cropW) / 2);
+              const sy = Math.round((vh - cropH) / 2);
+              scanCanvas.width = cropW;
+              scanCanvas.height = cropH;
+              scanCtx.drawImage(video, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
             }
+
+            const imgData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+            const results = await ZXingWASM.readBarcodes(imgData, {
+              tryHarder: true,
+              tryRotate: true,
+              tryInvert: true,
+              tryDownscale: true,
+              maxNumberOfSymbols: 1
+            });
+
+            if (results && results.length > 0 && results[0].text) {
+              detected = results[0].text;
+            }
+          }
+
+          if (detected) {
+            this.acceptUC(detected);
           }
         } catch (_) {
           // Nenhum código detectado no frame atual
@@ -204,18 +260,18 @@ const App = {
     requestAnimationFrame(tick);
   },
 
-  validateAndAcceptUC(rawCode) {
-    const code = (rawCode || '').trim().toUpperCase();
-    const cfg = this.getConfig();
-    const pattern = this.buildUcRegex(cfg.regex);
+  /**
+   * Aceita qualquer código bipado ou digitado (sem bloqueio por regex).
+   */
+  acceptUC(rawCode) {
+    const code = String(rawCode || '').trim().toUpperCase();
+    if (!code) return false;
 
-    if (pattern.test(code)) {
-      this.activeUC = code;
-      if (navigator.vibrate) navigator.vibrate(80);
-      this.setState('CAPTURE_PALLET');
-      return true;
-    }
-    return false;
+    this.activeUC = code;
+    if (navigator.vibrate) navigator.vibrate(80);
+    this.showToast(`Código lido: ${code}`);
+    this.setState('CAPTURE_PALLET');
+    return true;
   },
 
   setState(newState) {
@@ -233,8 +289,10 @@ const App = {
       frame.classList.remove('level-ok', 'level-bad');
       shutter.disabled = true;
       shutter.classList.remove('ready');
-      shutter.textContent = 'AGUARDANDO LEITURA DA UC';
+      shutter.textContent = 'AGUARDANDO LEITURA DO CÓDIGO';
     } else if (newState === 'CAPTURE_PALLET') {
+      // Ao entrar na captura do pallet, volta o zoom para 1x automaticamente para enquadrar tudo
+      if (this.zoomHigh) this.setZoom(false);
       document.getElementById('active-uc-code').textContent = this.activeUC;
       overlayScanner.classList.add('hidden');
       overlayCapture.classList.remove('hidden');
@@ -389,11 +447,27 @@ const App = {
     }
   },
 
+  async setZoom(high) {
+    if (!this.videoStream || !this.zoomCaps) return;
+    const track = this.videoStream.getVideoTracks()[0];
+    const target = high
+      ? Math.min(this.zoomCaps.max, Math.max(this.zoomCaps.min, 2.0))
+      : this.zoomCaps.min;
+    try {
+      await track.applyConstraints({ advanced: [{ zoom: target }] });
+      this.zoomHigh = high;
+      const btn = document.getElementById('btn-zoom');
+      btn.textContent = high ? `${target.toFixed(0)}x` : '1x';
+      btn.classList.toggle('active', high);
+    } catch (err) {
+      console.warn('Zoom não suportado:', err);
+    }
+  },
+
   async saveConfigAndStart() {
     const defaults = typeof APP_CONFIG !== 'undefined' ? APP_CONFIG : {};
     const operator = document.getElementById('cfg-operator').value.trim().toUpperCase();
     const apiUrl = (defaults.apiUrl || document.getElementById('cfg-url').value || '').trim();
-    const regex = (document.getElementById('cfg-regex').value || defaults.ucRegex || DEFAULT_UC_REGEX).trim();
 
     if (!operator) {
       alert('Informe sua matrícula para continuar.');
@@ -409,13 +483,6 @@ const App = {
       return;
     }
 
-    try {
-      new RegExp(regex);
-    } catch (_) {
-      alert('A expressão regular (Regex) informada é inválida.');
-      return;
-    }
-
     // Solicita permissão de sensores no iOS ANTES de qualquer await de câmera (gesto ativo)
     if (LevelSensor.needsPermission()) {
       await LevelSensor.requestPermissions();
@@ -424,8 +491,7 @@ const App = {
     const cfg = {
       operator,
       apiUrl,
-      token: (defaults.token || '').trim(),
-      regex
+      token: (defaults.token || '').trim()
     };
 
     localStorage.setItem('cubagem_config', JSON.stringify(cfg));
@@ -456,9 +522,8 @@ const App = {
 
     const confirmManualUC = () => {
       const val = document.getElementById('input-uc-manual').value;
-      if (!this.validateAndAcceptUC(val)) {
-        const cfg = this.getConfig();
-        alert(`Formato inválido. Padrão esperado: ${cfg.regex || DEFAULT_UC_REGEX}`);
+      if (!this.acceptUC(val)) {
+        this.showToast('Digite um código antes de confirmar.', true);
       }
     };
 
@@ -485,6 +550,10 @@ const App = {
 
     document.getElementById('btn-torch').addEventListener('click', () => {
       this.toggleTorch();
+    });
+
+    document.getElementById('btn-zoom').addEventListener('click', () => {
+      this.setZoom(!this.zoomHigh);
     });
   }
 };

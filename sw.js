@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cubagem-pwa-v1.2.0';
+const CACHE_NAME = 'cubagem-pwa-v1.3.0';
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,8 @@ const ASSETS = [
   './sync.js',
   './app.js',
   './manifest.json',
-  './vendor/html5-qrcode.min.js',
+  './vendor/zxing-reader.iife.js',
+  './vendor/zxing_reader.wasm',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];

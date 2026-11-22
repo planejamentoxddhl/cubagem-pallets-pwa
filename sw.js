@@ -1,0 +1,54 @@
+const CACHE_NAME = 'cubagem-pwa-v1.1.0';
+const ASSETS = [
+  './',
+  './index.html',
+  './styles.css',
+  './db.js',
+  './sensors.js',
+  './sync.js',
+  './app.js',
+  './manifest.json',
+  './vendor/html5-qrcode.min.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png'
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // Stale-While-Revalidate: resposta imediata offline + atualização em background quando online
+  event.respondWith(
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(event.request).then((cached) => {
+        const networkFetch = fetch(event.request)
+          .then((res) => {
+            if (res && res.status === 200) {
+              cache.put(event.request, res.clone());
+            }
+            return res;
+          })
+          .catch(() => cached || caches.match('./index.html'));
+
+        return cached || networkFetch;
+      })
+    )
+  );
+});

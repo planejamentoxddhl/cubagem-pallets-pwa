@@ -16,6 +16,7 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 input, textarea, select {
@@ -23,25 +24,31 @@ input, textarea, select {
   -webkit-user-select: text;
 }
 
-body {
+html, body {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
   background: var(--bg-dark);
   color: var(--text);
-  height: 100dvh;
+  overflow: hidden;
+}
+
+body {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .hidden { display: none !important; }
 
 .topbar {
-  height: 48px;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: calc(6px + env(safe-area-inset-top)) 12px 6px 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
   z-index: 20;
 }
 
@@ -89,11 +96,14 @@ body {
   color: var(--yellow);
 }
 
+/* min-height: 0 evita que o <video> empurre o botão de captura para fora da tela no iOS/Android */
 .screen {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 #screen-config {
@@ -123,10 +133,8 @@ input, select {
   color: var(--text);
   padding: 10px;
   border-radius: 8px;
-  font-size: 0.95rem;
+  font-size: 16px; /* evita zoom automático indesejado no iOS Safari */
 }
-
-.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 .tech-config {
   border: 1px dashed var(--border);
@@ -151,6 +159,7 @@ input, select {
 
 .camera-wrapper {
   flex: 1;
+  min-height: 0;
   position: relative;
   background: #000;
   border: 4px solid transparent;
@@ -162,6 +171,8 @@ input, select {
 .camera-wrapper.level-bad { border-color: var(--red); }
 
 video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -173,14 +184,15 @@ video {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 14px;
+  padding: 12px;
   pointer-events: none;
+  z-index: 5;
 }
 
 .scan-reticle {
   margin: auto;
-  width: 78%;
-  height: 130px;
+  width: 80%;
+  height: 120px;
   border: 2px solid var(--yellow);
   border-radius: 12px;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
@@ -204,11 +216,11 @@ video {
 
 .scan-hint {
   text-align: center;
-  background: rgba(13, 15, 18, 0.85);
-  padding: 8px 12px;
+  background: rgba(13, 15, 18, 0.88);
+  padding: 7px 12px;
   border-radius: 8px;
-  font-size: 0.9rem;
-  margin-bottom: 10px;
+  font-size: 0.85rem;
+  margin-bottom: 8px;
 }
 
 .manual-uc-box {
@@ -224,12 +236,12 @@ video {
   pointer-events: auto;
   background: rgba(13, 15, 18, 0.9);
   border: 1px solid var(--yellow);
-  padding: 8px 12px;
+  padding: 7px 12px;
   border-radius: 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .uc-active-banner strong { color: var(--yellow); }
@@ -279,7 +291,7 @@ video {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  width: 24px;
+  width: 34px;
   height: 100%;
   border-left: 2px solid var(--green);
   border-right: 2px solid var(--green);
@@ -299,15 +311,33 @@ video {
 
 #level-angle { font-size: 0.74rem; font-weight: 700; text-align: center; }
 
-.btn-sensor-perm {
+.sensor-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   margin-top: 4px;
+}
+
+.btn-sensor-perm {
   background: var(--yellow);
   color: #0d0f12;
   border: none;
-  padding: 7px 12px;
+  padding: 8px 14px;
   border-radius: 8px;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 800;
+  cursor: pointer;
+}
+
+.btn-sensor-bypass {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -315,27 +345,27 @@ video {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .guide-tip {
   background: rgba(0, 0, 0, 0.78);
   padding: 4px 10px;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   text-align: center;
 }
 
 .pbr-base-box {
   width: 82%;
-  height: 54px;
+  height: 48px;
   border: 2px dashed var(--yellow);
   background: rgba(255, 204, 0, 0.12);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 800;
   color: var(--yellow);
   letter-spacing: 0.5px;
@@ -388,12 +418,14 @@ video {
 }
 
 .control-dock {
+  flex-shrink: 0;
   background: var(--surface);
   border-top: 1px solid var(--border);
-  padding: 12px;
+  padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  z-index: 20;
 }
 
 .base-selector {
@@ -406,9 +438,9 @@ video {
   background: var(--bg-dark);
   color: var(--muted);
   border: 1px solid var(--border);
-  padding: 9px;
+  padding: 8px;
   border-radius: 8px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -421,25 +453,41 @@ video {
 
 .btn-primary, .btn-shutter {
   width: 100%;
-  padding: 15px;
+  padding: 15px 14px;
   border: none;
-  border-radius: 10px;
+  border-radius: 12px;
   font-size: 1rem;
   font-weight: 800;
   cursor: pointer;
   background: var(--yellow);
   color: #0d0f12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.08s ease, background 0.15s ease;
+}
+
+.btn-shutter:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .btn-shutter:disabled {
   background: #2c333f;
-  color: #6b7280;
+  color: #9ca3af;
   cursor: not-allowed;
+  border: 1px solid #3c4556;
 }
 
 .btn-shutter.ready {
   background: var(--green);
   color: #fff;
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.45);
+}
+
+.shutter-icon {
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
 .btn-secondary {
@@ -456,7 +504,7 @@ video {
   background: var(--red);
   color: #fff;
   border: none;
-  padding: 4px 10px;
+  padding: 5px 10px;
   border-radius: 6px;
   font-size: 0.75rem;
   font-weight: 700;
@@ -465,7 +513,7 @@ video {
 
 .toast {
   position: fixed;
-  top: 58px;
+  top: calc(56px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   background: var(--green);

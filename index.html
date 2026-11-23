@@ -2,8 +2,10 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0d0f12" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Cubagem de Pallets — Operação</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -50,7 +52,7 @@
 
   <main id="screen-main" class="screen">
     <div class="camera-wrapper" id="camera-frame">
-      <video id="camera-video" autoplay playsinline muted></video>
+      <video id="camera-video" autoplay playsinline webkit-playsinline="true" muted></video>
       <canvas id="capture-canvas" class="hidden"></canvas>
       <canvas id="scan-canvas" class="hidden"></canvas>
 
@@ -74,7 +76,7 @@
         </div>
 
         <div class="level-hud" id="level-hud">
-          <div class="level-axes">
+          <div class="level-axes" id="level-axes">
             <div class="axis-row">
               <span class="axis-lbl">H</span>
               <div class="level-track">
@@ -91,13 +93,18 @@
             </div>
           </div>
           <span id="level-angle">0.0° • AGUARDANDO SENSOR</span>
-          <button type="button" id="btn-enable-sensors" class="btn-sensor-perm hidden">
-            ATIVAR GIROSCÓPIO (OBRIGATÓRIO iOS)
-          </button>
+          <div class="sensor-actions hidden" id="sensor-actions">
+            <button type="button" id="btn-enable-sensors" class="btn-sensor-perm">
+              ATIVAR NÍVEL (GIROSCÓPIO)
+            </button>
+            <button type="button" id="btn-bypass-sensor" class="btn-sensor-bypass">
+              Continuar sem sensor
+            </button>
+          </div>
         </div>
 
         <div class="pbr-guide">
-          <span class="guide-tip">Recue ~2m • Fotografe a FACE DE 1,00m (frente) do PBR</span>
+          <span class="guide-tip">Recue ~2m • Enquadre a base PBR (1,00m) abaixo</span>
           <div class="pbr-base-box">ALINHE A BASE PBR (1,00m) AQUI</div>
         </div>
       </div>
@@ -106,8 +113,8 @@
       <button id="btn-zoom" class="btn-floating-zoom hidden" title="Alternar Zoom">1x</button>
     </div>
 
-    <footer class="control-dock">
-      <div class="base-selector">
+    <footer class="control-dock" id="control-dock">
+      <div class="base-selector" id="base-selector">
         <button type="button" class="base-btn active" data-base="PBR_100x120">
           Base PBR (1,00 × 1,20m)
         </button>
@@ -116,8 +123,9 @@
         </button>
       </div>
 
-      <button id="btn-shutter" class="btn-shutter" disabled>
-        AGUARDANDO LEITURA DO CÓDIGO
+      <button type="button" id="btn-shutter" class="btn-shutter" disabled>
+        <span class="shutter-icon" id="shutter-icon">📷</span>
+        <span id="shutter-label">AGUARDANDO LEITURA DO CÓDIGO</span>
       </button>
     </footer>
   </main>

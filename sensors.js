@@ -1,16 +1,18 @@
 const LevelSensor = {
-  MAX_TILT_DEG: 3.0,
-  EMA_ALPHA: 0.25,
+  // ±5° garante distorção geométrica < 0.4% (cos 5° = 0.996) e alinhamento rápido em qualquer aparelho
+  MAX_TILT_DEG: 5.0,
+  EMA_ALPHA: 0.28,
 
   currentTilt: 0.0,
   currentPitch: 0.0,
   currentRoll: 0.0,
   isLevel: false,
-  status: 'INIT', // 'ACTIVE' | 'NEEDS_PERMISSION' | 'DENIED' | 'NO_HARDWARE'
+  status: 'INIT', // 'ACTIVE' | 'NEEDS_PERMISSION' | 'DENIED' | 'NO_HARDWARE' | 'BYPASSED'
   hasMotionData: false,
   hasOrientationData: false,
   permissionGranted: false,
   permissionDenied: false,
+  manualBypass: false,
 
   onChangeCallback: null,
   _started: false,
@@ -19,17 +21,18 @@ const LevelSensor = {
   _boundOrientation: null,
 
   needsPermission() {
+    if (this.manualBypass || this.permissionGranted) return false;
     const needsMotion =
       typeof DeviceMotionEvent !== 'undefined' &&
       typeof DeviceMotionEvent.requestPermission === 'function';
     const needsOrient =
       typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function';
-    return (needsMotion || needsOrient) && !this.permissionGranted;
+    return needsMotion || needsOrient;
   },
 
   /**
-   * Deve ser chamado diretamente dentro de um manipulador de clique (gesto do usuário) no iOS.
+   * Deve ser chamado diretamente dentro de um clique (gesto do usuário) no iOS.
    */
   async requestPermissions() {
     if (!this.needsPermission()) {
@@ -56,6 +59,7 @@ const LevelSensor = {
     if (grantedAny) {
       this.permissionGranted = true;
       this.permissionDenied = false;
+      this.manualBypass = false;
       this._attachListeners();
       return true;
     }
@@ -67,8 +71,29 @@ const LevelSensor = {
     return false;
   },
 
+  /**
+   * Garante portabilidade total: caso um aparelho/navegador específico bloqueie ou não exponha sensores,
+   * permite continuar a operação sem travar o colaborador.
+   */
+  enableManualBypass() {
+    this.manualBypass = true;
+    this.status = 'BYPASSED';
+    this.currentTilt = 0.0;
+    this.currentPitch = 0.0;
+    this.currentRoll = 0.0;
+    this.isLevel = true;
+    this._emit();
+  },
+
   start(onChange) {
     this.onChangeCallback = onChange;
+
+    if (this.manualBypass) {
+      this.status = 'BYPASSED';
+      this.isLevel = true;
+      this._emit();
+      return;
+    }
 
     if (this.needsPermission()) {
       this.status = this.permissionDenied ? 'DENIED' : 'NEEDS_PERMISSION';
@@ -92,7 +117,7 @@ const LevelSensor = {
     if (this._fallbackTimer) clearTimeout(this._fallbackTimer);
     this._fallbackTimer = setTimeout(() => {
       if (!this.hasMotionData && !this.hasOrientationData && !this.needsPermission()) {
-        console.warn('Dispositivo sem acelerômetro/giroscópio ativo. Liberando modo coletor.');
+        console.warn('Dispositivo sem acelerômetro/giroscópio ativo. Liberando modo universal.');
         this.status = 'NO_HARDWARE';
         this.currentTilt = 0.0;
         this.currentPitch = 0.0;
@@ -103,20 +128,33 @@ const LevelSensor = {
     }, 1500);
   },
 
+  _isLandscape() {
+    if (window.screen && window.screen.orientation && typeof window.screen.orientation.angle === 'number') {
+      const a = Math.abs(window.screen.orientation.angle);
+      return a === 90 || a === 270;
+    }
+    return window.innerWidth > window.innerHeight;
+  },
+
   /**
-   * Cálculo por vetor gravidade (devicemotion): imune a gimbal lock quando o aparelho está vertical (90°)
-   * e independente da convenção de sinal iOS vs Android.
+   * Cálculo por vetor gravidade (devicemotion): imune a gimbal lock na vertical (90°),
+   * compatível com convenções de sinal iOS/Android e orientação retrato ou paisagem.
    */
   _handleMotion(event) {
+    if (this.manualBypass) return;
     const acc = event.accelerationIncludingGravity;
     if (!acc || acc.x === null || acc.y === null || acc.z === null) return;
 
     const g = Math.hypot(acc.x, acc.y, acc.z);
     if (g < 2.0) return;
 
-    const ayAbs = Math.max(Math.abs(acc.y), 0.001);
-    const rawPitch = (Math.atan2(acc.z, Math.hypot(acc.x, acc.y)) * 180) / Math.PI;
-    const rawRoll = (Math.atan2(acc.x, ayAbs) * 180) / Math.PI;
+    const landscape = this._isLandscape();
+    const verticalAxis = landscape ? acc.x : acc.y;
+    const lateralAxis = landscape ? acc.y : acc.x;
+
+    const vAbs = Math.max(Math.abs(verticalAxis), 0.001);
+    const rawPitch = (Math.atan2(acc.z, Math.hypot(lateralAxis, verticalAxis)) * 180) / Math.PI;
+    const rawRoll = (Math.atan2(lateralAxis, vAbs) * 180) / Math.PI;
 
     if (!this.hasMotionData) {
       this.currentPitch = rawPitch;
@@ -135,18 +173,23 @@ const LevelSensor = {
   },
 
   /**
-   * Fallback secundário caso o navegador emita apenas deviceorientation.
+   * Fallback secundário para aparelhos/navegadores que emitem apenas deviceorientation.
    */
   _handleOrientation(event) {
-    if (this.hasMotionData) return;
+    if (this.manualBypass || this.hasMotionData) return;
     if (event.beta === null || event.gamma === null) return;
 
-    this.hasOrientationData = true;
     const rawPitch = 90 - Math.abs(event.beta);
     const rawRoll = event.gamma;
 
-    this.currentPitch = this.currentPitch + this.EMA_ALPHA * (rawPitch - this.currentPitch);
-    this.currentRoll = this.currentRoll + this.EMA_ALPHA * (rawRoll - this.currentRoll);
+    if (!this.hasOrientationData) {
+      this.currentPitch = rawPitch;
+      this.currentRoll = rawRoll;
+      this.hasOrientationData = true;
+    } else {
+      this.currentPitch = this.currentPitch + this.EMA_ALPHA * (rawPitch - this.currentPitch);
+      this.currentRoll = this.currentRoll + this.EMA_ALPHA * (rawRoll - this.currentRoll);
+    }
 
     const maxDev = Math.max(Math.abs(this.currentPitch), Math.abs(this.currentRoll));
     this.currentTilt = Number(maxDev.toFixed(1));

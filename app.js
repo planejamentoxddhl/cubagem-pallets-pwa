@@ -84,18 +84,40 @@ const App = {
     this.setState('SCAN_UC');
   },
 
+  /**
+   * Inicialização de câmera com fallback em 3 níveis para portabilidade total
+   * (iPhones, Androids intermediários/antigos, coletores Zebra/Honeywell e desktops).
+   */
   async initCamera() {
     if (this.videoStream) return;
-    try {
-      this.videoStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
-        audio: false
-      });
 
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Este navegador não suporta acesso à câmera. Use HTTPS no Chrome ou Safari.');
+      return;
+    }
+
+    const attempts = [
+      { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+      { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      { video: true, audio: false }
+    ];
+
+    let lastErr = null;
+    for (const constraints of attempts) {
+      try {
+        this.videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (!this.videoStream) {
+      alert('Erro ao acessar câmera. Verifique permissões HTTPS: ' + (lastErr ? lastErr.message : ''));
+      return;
+    }
+
+    try {
       const video = document.getElementById('camera-video');
       video.srcObject = this.videoStream;
       await video.play();
@@ -104,7 +126,7 @@ const App = {
       await this.initBarcodeReaders();
       this.startBarcodeLoop();
     } catch (err) {
-      alert('Erro ao acessar câmera. Verifique permissões HTTPS: ' + err.message);
+      alert('Erro ao iniciar preview da câmera: ' + err.message);
     }
   },
 
@@ -136,8 +158,8 @@ const App = {
   async initBarcodeReaders() {
     const hint = document.getElementById('scan-hint');
 
-    // 1. Motor principal universal (iOS Safari, Android e Desktop): ZXing-C++ WebAssembly
-    if (typeof ZXingWASM !== 'undefined') {
+    // 1. Motor universal em WebAssembly (iOS Safari, Android, Firefox, Samsung Internet, Desktop)
+    if (typeof WebAssembly === 'object' && typeof ZXingWASM !== 'undefined') {
       try {
         await ZXingWASM.prepareZXingModule({
           overrides: {
@@ -153,7 +175,7 @@ const App = {
       }
     }
 
-    // 2. Motor auxiliar nativo (Android Chrome) caso disponível
+    // 2. Motor auxiliar nativo (Android Chrome)
     if ('BarcodeDetector' in window) {
       try {
         const supported = typeof BarcodeDetector.getSupportedFormats === 'function'
@@ -198,7 +220,6 @@ const App = {
         try {
           let detected = null;
 
-          // Tenta BarcodeDetector nativo primeiro se existir (muito rápido no Android)
           if (this.barcodeDetector) {
             try {
               const barcodes = await this.barcodeDetector.detect(video);
@@ -208,13 +229,10 @@ const App = {
             } catch (_) {}
           }
 
-          // ZXing-C++ WASM (funciona no iPhone 14 Pro / iOS Safari + 1D/2D de alta precisão)
           if (!detected && this.zxingReady) {
             const vw = video.videoWidth;
             const vh = video.videoHeight;
 
-            // Alterna entre recorte central em resolução nativa (ideal p/ 1D fino: EAN-13/Code128)
-            // e quadro inteiro a cada 3 frames (pega códigos fora do retângulo central)
             const scanFullFrame = this.scanFrameCounter % 3 === 0;
             if (scanFullFrame) {
               const maxSide = 1080;
@@ -260,9 +278,6 @@ const App = {
     requestAnimationFrame(tick);
   },
 
-  /**
-   * Aceita qualquer código bipado ou digitado (sem bloqueio por regex).
-   */
   acceptUC(rawCode) {
     const code = String(rawCode || '').trim().toUpperCase();
     if (!code) return false;
@@ -274,11 +289,21 @@ const App = {
     return true;
   },
 
+  setShutterState(enabled, label, icon = '📷') {
+    const shutter = document.getElementById('btn-shutter');
+    const lbl = document.getElementById('shutter-label');
+    const ic = document.getElementById('shutter-icon');
+    shutter.disabled = !enabled;
+    shutter.classList.toggle('ready', enabled);
+    lbl.textContent = label;
+    ic.textContent = icon;
+  },
+
   setState(newState) {
     this.state = newState;
     const overlayScanner = document.getElementById('overlay-scanner');
     const overlayCapture = document.getElementById('overlay-capture');
-    const shutter = document.getElementById('btn-shutter');
+    const baseSelector = document.getElementById('base-selector');
     const frame = document.getElementById('camera-frame');
 
     if (newState === 'SCAN_UC') {
@@ -286,16 +311,15 @@ const App = {
       document.getElementById('input-uc-manual').value = '';
       overlayScanner.classList.remove('hidden');
       overlayCapture.classList.add('hidden');
+      baseSelector.classList.add('hidden');
       frame.classList.remove('level-ok', 'level-bad');
-      shutter.disabled = true;
-      shutter.classList.remove('ready');
-      shutter.textContent = 'AGUARDANDO LEITURA DO CÓDIGO';
+      this.setShutterState(false, 'AGUARDANDO LEITURA DO CÓDIGO', '🔍');
     } else if (newState === 'CAPTURE_PALLET') {
-      // Ao entrar na captura do pallet, volta o zoom para 1x automaticamente para enquadrar tudo
       if (this.zoomHigh) this.setZoom(false);
       document.getElementById('active-uc-code').textContent = this.activeUC;
       overlayScanner.classList.add('hidden');
       overlayCapture.classList.remove('hidden');
+      baseSelector.classList.remove('hidden');
       this.updateLevelUI({
         tilt: LevelSensor.currentTilt,
         pitch: LevelSensor.currentPitch,
@@ -310,53 +334,52 @@ const App = {
     if (this.state !== 'CAPTURE_PALLET') return;
 
     const frame = document.getElementById('camera-frame');
-    const shutter = document.getElementById('btn-shutter');
     const angleLbl = document.getElementById('level-angle');
     const rollBubble = document.getElementById('level-bubble');
     const pitchBubble = document.getElementById('pitch-bubble');
-    const permBtn = document.getElementById('btn-enable-sensors');
+    const levelAxes = document.getElementById('level-axes');
+    const sensorActions = document.getElementById('sensor-actions');
 
-    const rollOffset = Math.max(-55, Math.min(55, (roll || 0) * 4));
-    const pitchOffset = Math.max(-55, Math.min(55, (pitch || 0) * 4));
+    const rollOffset = Math.max(-55, Math.min(55, (roll || 0) * 3.5));
+    const pitchOffset = Math.max(-55, Math.min(55, (pitch || 0) * 3.5));
     rollBubble.style.left = `calc(50% + ${rollOffset}px)`;
     pitchBubble.style.left = `calc(50% + ${pitchOffset}px)`;
 
     if (status === 'NEEDS_PERMISSION' || status === 'DENIED') {
-      permBtn.classList.remove('hidden');
+      levelAxes.classList.add('hidden');
+      sensorActions.classList.remove('hidden');
       angleLbl.textContent =
         status === 'DENIED'
-          ? 'PERMISSÃO NEGADA • REATIVE NOS AJUSTES'
-          : 'GIROSCÓPIO PENDENTE DE AUTORIZAÇÃO';
+          ? 'SENSOR BLOQUEADO PELO NAVEGADOR'
+          : 'ATIVE O NÍVEL PARA GARANTIR ALINHAMENTO';
       frame.className = 'camera-wrapper level-bad';
-      shutter.disabled = true;
-      shutter.classList.remove('ready');
-      shutter.textContent = 'ATIVE O GIROSCÓPIO ACIMA';
+      this.setShutterState(false, 'ATIVE O NÍVEL ACIMA PARA CAPTURAR', '⚠️');
       return;
     }
 
-    permBtn.classList.add('hidden');
+    sensorActions.classList.add('hidden');
 
-    if (status === 'NO_HARDWARE') {
-      angleLbl.textContent = 'MODO COLETOR (SEM GIROSCÓPIO)';
+    if (status === 'NO_HARDWARE' || status === 'BYPASSED') {
+      levelAxes.classList.add('hidden');
+      angleLbl.textContent =
+        status === 'BYPASSED'
+          ? 'MODO MANUAL • ALINHE VISUALMENTE'
+          : 'MODO UNIVERSAL • ALINHE VISUALMENTE';
       frame.className = 'camera-wrapper level-ok';
-      shutter.disabled = false;
-      shutter.classList.add('ready');
-      shutter.textContent = `CAPTURAR CUBAGEM (${this.activeUC})`;
+      this.setShutterState(true, 'TIRAR FOTO DO PALLET', '📸');
       return;
     }
+
+    levelAxes.classList.remove('hidden');
 
     if (isLevel) {
-      angleLbl.textContent = `H:${Math.abs(roll).toFixed(1)}° V:${Math.abs(pitch).toFixed(1)}° • NIVELADO`;
+      angleLbl.textContent = `H:${Math.abs(roll).toFixed(1)}° V:${Math.abs(pitch).toFixed(1)}° • ALINHADO`;
       frame.className = 'camera-wrapper level-ok';
-      shutter.disabled = false;
-      shutter.classList.add('ready');
-      shutter.textContent = `CAPTURAR CUBAGEM (${this.activeUC})`;
+      this.setShutterState(true, 'TIRAR FOTO DO PALLET', '📸');
     } else {
-      angleLbl.textContent = `H:${Math.abs(roll).toFixed(1)}° V:${Math.abs(pitch).toFixed(1)}° • MÁX ±3°`;
+      angleLbl.textContent = `H:${Math.abs(roll).toFixed(1)}° V:${Math.abs(pitch).toFixed(1)}° • ALINHE (±${LevelSensor.MAX_TILT_DEG}°)`;
       frame.className = 'camera-wrapper level-bad';
-      shutter.disabled = true;
-      shutter.classList.remove('ready');
-      shutter.textContent = 'NIVELAR APARELHO PARA FOTOGRAFAR';
+      this.setShutterState(false, 'ALINHE O CELULAR PARA LIBERAR A FOTO', '📐');
     }
   },
 
@@ -370,8 +393,7 @@ const App = {
     }
 
     this.isCapturing = true;
-    const shutter = document.getElementById('btn-shutter');
-    shutter.disabled = true;
+    this.setShutterState(false, 'SALVANDO FOTO...', '⏳');
 
     try {
       const t0 = performance.now();
@@ -406,14 +428,20 @@ const App = {
       await CubagemDB.enqueue(record);
 
       const elapsedMs = Math.round(performance.now() - t0);
-      this.showToast(`UC ${capturedUC} salva (${elapsedMs}ms)`);
+      this.showToast(`Foto ${capturedUC} salva (${elapsedMs}ms)`);
 
       this.setState('SCAN_UC');
       SyncWorker.processQueue();
     } catch (err) {
       console.error('Erro ao capturar/salvar foto:', err);
       this.showToast('Erro ao salvar captura localmente.', true);
-      shutter.disabled = false;
+      this.updateLevelUI({
+        tilt: LevelSensor.currentTilt,
+        pitch: LevelSensor.currentPitch,
+        roll: LevelSensor.currentRoll,
+        isLevel: LevelSensor.isLevel,
+        status: LevelSensor.status
+      });
     } finally {
       this.isCapturing = false;
     }
@@ -516,8 +544,13 @@ const App = {
     document.getElementById('btn-enable-sensors').addEventListener('click', async () => {
       const ok = await LevelSensor.requestPermissions();
       if (!ok) {
-        this.showToast('Permissão de movimento negada no Safari.', true);
+        this.showToast('Permissão negada. Você pode usar "Continuar sem sensor".', true);
       }
+    });
+
+    document.getElementById('btn-bypass-sensor').addEventListener('click', () => {
+      LevelSensor.enableManualBypass();
+      this.showToast('Modo manual liberado.');
     });
 
     const confirmManualUC = () => {
